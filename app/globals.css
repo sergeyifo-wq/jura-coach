@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-paper: #f3eee4;
+  --color-paper-deep: #e7dfd0;
+  --color-ink: #14284b;
+  --color-ink-soft: #3d4a63;
+  --color-burgundy: #7c1f2d;
+  --color-gold: #a77f3c;
+  --color-gold-soft: #f3e6cb;
+  --color-line: #ddcbb3;
+  --color-card: #faf7f1;
+  --font-sans: var(--font-source);
+  --font-serif: var(--font-garamond);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-source), "Source Sans 3", sans-serif;
+}
+
+::selection {
+  background: #ead7a4;
+  color: #14284b;
+}
+
+.serif {
+  font-family: var(--font-garamond), "EB Garamond", serif;
+}
+
+.rule {
+  background: linear-gradient(90deg, transparent, var(--color-gold), transparent);
+  height: 1px;
+}
+
+a {
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
