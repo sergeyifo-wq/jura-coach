@@ -8,7 +8,7 @@ Paragraphen ohne Gesetzesangabe sind solche des ABGB. Für die Prüfung gilt der
 
 ## Lernen
 
-- Jedes Kapitel hat einen Lesetext, ein Bild zum Teil und einen kurzen Erklärfilm ohne Ton.
+- Jedes Kapitel hat einen Lesetext, ein Bild zum Teil und einen kurzen Erklärfilm mit gesprochener Erklärung.
 - In vier Kapiteln liegt zusätzlich ein Schema zum Aufklappen (Stufenbau, Geschäftsfähigkeit, Stellvertretung, Leistungsstörungen).
 - Die Fälle bleiben ohne Lösung, bis du sie selbst aufschlägst. Eine Selbsteinschätzung von 0 bis 4 bleibt in diesem Browser.
 

@@ -68,7 +68,7 @@ async function ChapterContent({ params }: { params: Promise<{ slug: string }> })
               <source src={`/media/videos/kapitel-${chapter.id}.mp4`} type="video/mp4" />
             </video>
             <figcaption className="px-4 py-3 text-sm text-gold-soft">
-              Erklärfilm ohne Ton. Die Sätze stehen im Bild, der Abschnitt darunter führt sie aus.
+              Erklärfilm mit österreichischer Stimme. Die Sätze stehen auch im Bild, der Abschnitt darunter führt sie aus.
             </figcaption>
           </figure>
         ) : (

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Build a short silent explainer film for each numbered chapter."""
+"""Build a short narrated explainer film for each numbered chapter."""
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import subprocess
 from pathlib import Path
+
+import edge_tts
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -76,7 +80,7 @@ def title_slide(kicker: str, title: str, sentence: str) -> Image.Image:
         draw.text((72, y), line, font=small, fill=MUTED)
         y += 40
     foot = font(SANS, 18)
-    draw.text((72, H - 48), "Jura Coach  ·  Erklärfilm ohne Ton", font=foot, fill=BURGUNDY)
+    draw.text((72, H - 48), "Jura Coach  ·  mit gesprochener Erklärung", font=foot, fill=BURGUNDY)
     return image
 
 
@@ -114,6 +118,39 @@ def points_for(chapter: dict) -> list[tuple[str, str]]:
     return found[:4]
 
 
+VOICE = "de-AT-JonasNeural"
+
+
+def speakable(text: str) -> str:
+    text = text.replace("→", ", dann ")
+    text = text.replace("·", ". ")
+    text = text.replace("§§", "die Paragraphen ")
+    text = text.replace("§", "Paragraph ")
+    text = re.sub(r"\bAbs\.\s*", "Absatz ", text)
+    text = re.sub(r"\bAbs\s+", "Absatz ", text)
+    text = re.sub(r"\bff\.?", "folgende", text)
+    text = text.replace("zB", "zum Beispiel")
+    text = text.replace("bzw.", "beziehungsweise")
+    text = text.replace("ABGB", "A B G B")
+    text = text.replace("UGB", "U G B")
+    text = text.replace("KSchG", "Konsumentenschutzgesetz")
+    text = text.replace("CISG", "UN-Kaufrecht")
+    text = text.replace("ZPO", "Zivilprozessordnung")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def trim_spoken(text: str, limit: int = 520) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("; "), cut.rfind("? "), cut.rfind("! "))
+    if end > 180:
+        return cut[: end + 1].strip()
+    return cut.rstrip(" ,;:") + "."
+
+
 def intro_sentence(chapter: dict) -> str:
     for block in chapter.get("intro") or []:
         text = (block.get("text") or "").strip()
@@ -123,65 +160,138 @@ def intro_sentence(chapter: dict) -> str:
     return "Die Regeln dieses Kapitels tragen die späteren Fälle."
 
 
+def slide_script(kind: str, title: str, sentence: str, heading: str, body: str) -> str:
+    if kind == "title":
+        return speakable(f"Kapitel {title}. {sentence}")
+    spoken = trim_spoken(body)
+    if heading and heading.lower() not in spoken[:48].lower():
+        spoken = f"{heading}. {spoken}"
+    return speakable(spoken)
+
+
+async def synthesize(text: str, dest: Path) -> None:
+    await edge_tts.Communicate(text, VOICE, rate="-6%").save(str(dest))
+
+
+def media_duration(path: Path) -> float:
+    raw = subprocess.check_output(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "csv=p=0",
+            str(path),
+        ],
+        text=True,
+    )
+    return float(raw.strip())
+
+
 def render_chapter(chapter: dict, part_title: str) -> None:
-    points = points_for(chapter)
-    slides = [title_slide(f"{part_title}  ·  Kapitel {chapter['id']}", chapter["title"], intro_sentence(chapter))]
+    sentence = intro_sentence(chapter)
+    points = points_for(chapter) or [("Lesen", sentence)]
+    slides: list[Image.Image] = [
+        title_slide(f"{part_title}  ·  Kapitel {chapter['id']}", chapter["title"], sentence)
+    ]
+    scripts = [slide_script("title", f"{chapter['id']}. {chapter['title']}", sentence, "", "")]
     for index, (heading, body) in enumerate(points, start=1):
-        slides.append(point_slide(index, len(points), heading, body))
-    if not points:
-        slides.append(point_slide(1, 1, "Lesen", intro_sentence(chapter)))
+        shown = trim_spoken(body)
+        slides.append(point_slide(index, len(points), heading, shown))
+        scripts.append(slide_script("point", "", "", heading, shown))
     folder = TMP / chapter["id"]
     folder.mkdir(parents=True, exist_ok=True)
-    paths = []
+    images: list[Path] = []
     for index, slide in enumerate(slides):
         path = folder / f"{index:02d}.png"
         slide.save(path, "PNG")
-        paths.append(path)
+        images.append(path)
     slides[0].save(POSTER_DIR / f"kapitel-{chapter['id']}.jpg", "JPEG", quality=86)
-    encode(paths, OUT_DIR / f"kapitel-{chapter['id']}.mp4")
+    voices = asyncio.run(speak_all(scripts, folder))
+    encode(images, voices, OUT_DIR / f"kapitel-{chapter['id']}.mp4")
 
 
-def encode(paths: list[Path], dest: Path) -> None:
-    duration = 6.4
-    fade = 0.4
-    cmd = ["ffmpeg", "-y"]
-    for path in paths:
-        cmd += ["-loop", "1", "-t", f"{duration}", "-i", str(path)]
-    if len(paths) == 1:
-        cmd += ["-i", str(paths[0]), "-frames:v", "1"]
-    filters = []
-    if len(paths) == 1:
-        filters.append("[0]format=yuv420p[vout]")
-    else:
-        previous = "[0]"
-        offset = duration - fade
-        for index in range(1, len(paths)):
-            label = "[vout]" if index == len(paths) - 1 else f"[v{index}]"
-            filters.append(
-                f"{previous}[{index}]xfade=transition=fade:duration={fade}:offset={offset:.2f}{label}"
-            )
-            previous = label
-            offset += duration - fade
-    cmd += [
-        "-filter_complex",
-        ";".join(filters),
-        "-map",
-        "[vout]",
-        "-r",
-        "24",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:v",
-        "libx264",
-        "-crf",
-        "28",
-        "-preset",
-        "veryfast",
-        "-movflags",
-        "+faststart",
-        str(dest),
-    ]
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+async def speak_all(scripts: list[str], folder: Path) -> list[Path]:
+    paths: list[Path] = []
+    for index, text in enumerate(scripts):
+        dest = folder / f"{index:02d}.mp3"
+        await synthesize(text, dest)
+        paths.append(dest)
+    return paths
+
+
+def encode(images: list[Path], voices: list[Path], dest: Path) -> None:
+    folder = images[0].parent
+    segments: list[Path] = []
+    for index, (image, voice) in enumerate(zip(images, voices)):
+        segment = folder / f"seg-{index:02d}.mp4"
+        span = media_duration(voice) + 0.7
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-loop",
+                "1",
+                "-framerate",
+                "24",
+                "-i",
+                str(image),
+                "-i",
+                str(voice),
+                "-filter_complex",
+                f"[1:a]apad=pad_dur=0.7,afade=t=in:st=0:d=0.05,afade=t=out:st={max(span - 0.22, 0.1):.2f}:d=0.18[a]",
+                "-map",
+                "0:v",
+                "-map",
+                "[a]",
+                "-t",
+                f"{span:.3f}",
+                "-r",
+                "24",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-ac",
+                "2",
+                "-ar",
+                "48000",
+                "-shortest",
+                str(segment),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        segments.append(segment)
+    listing = folder / "list.txt"
+    listing.write_text("".join(f"file '{path}'\n" for path in segments), encoding="utf-8")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(listing),
+            "-c",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(dest),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def main() -> None:
